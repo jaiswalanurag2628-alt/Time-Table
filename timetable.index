@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Timetable → Script Builder</title>
+<style>
+  :root{
+    --paper:#EFEDE6; --panel:#FFFFFF; --line:#D8D4C8; --ink:#1B2A4A;
+    --ink-soft:#5B6472; --teal:#2F6F5E; --teal-dark:#234F43; --warn:#B23A2E; --warn-bg:#FBEAE8;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    line-height:1.45;
+  }
+  .wrap{max-width:920px; margin:0 auto; padding:40px 24px 80px;}
+  h1{
+    font-family:Georgia,"Iowan Old Style",serif; font-weight:600;
+    font-size:28px; margin:0 0 6px;
+  }
+  .sub{color:var(--ink-soft); margin:0 0 32px; font-size:14px;}
+  .step{
+    background:var(--panel); border:1px solid var(--line); border-radius:2px;
+    padding:22px 24px; margin-bottom:20px;
+  }
+  .step h2{
+    font-family:Georgia,serif; font-size:17px; margin:0 0 4px; display:flex; align-items:baseline; gap:10px;
+  }
+  .step h2 .n{
+    font-family:Georgia,serif; color:var(--teal-dark); font-size:15px; border:1px solid var(--teal-dark);
+    width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center;
+    flex:none;
+  }
+  .step p.hint{color:var(--ink-soft); font-size:13px; margin:2px 0 14px 32px;}
+  textarea, input[type=text]{
+    width:100%; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12.5px;
+    border:1px solid var(--line); border-radius:2px; padding:10px; background:#FCFBF8; color:var(--ink);
+    resize:vertical;
+  }
+  textarea:focus, input:focus{outline:2px solid var(--teal); outline-offset:-1px;}
+  .row{display:flex; gap:16px; margin-left:32px;}
+  .col{flex:1;}
+  label.small{font-size:12px; color:var(--ink-soft); display:block; margin-bottom:4px;}
+  .actions{margin-left:32px; margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;}
+  button{
+    font-family:inherit; font-size:13px; font-weight:600; padding:9px 16px;
+    border-radius:2px; border:1px solid var(--teal-dark); cursor:pointer;
+  }
+  button.primary{background:var(--teal); color:#fff; border-color:var(--teal-dark);}
+  button.primary:hover{background:var(--teal-dark);}
+  button.ghost{background:transparent; color:var(--teal-dark);}
+  button.ghost:hover{background:#F0F6F4;}
+  table.grid{border-collapse:collapse; width:100%; margin-left:32px; margin-top:4px; font-size:12px;}
+  table.grid th, table.grid td{border:1px solid var(--line); padding:4px; vertical-align:top;}
+  table.grid th{background:#F5F3EC; font-weight:600; font-size:11px; text-align:left; padding:6px 4px;}
+  table.grid td.daycell{background:#F5F3EC; font-weight:600; white-space:nowrap;}
+  .cellbox input{width:100%; font-family:inherit; font-size:11.5px; padding:3px 4px; margin-bottom:2px; border:1px solid #E3E0D6;}
+  .cellbox input.subj{font-weight:600;}
+  .cellbox input.bad{border-color:var(--warn); background:var(--warn-bg);}
+  .cellbox .flag{color:var(--warn); font-size:10px; margin-top:1px;}
+  table.map{border-collapse:collapse; margin-left:32px; width:calc(100% - 32px); font-size:12.5px;}
+  table.map th{text-align:left; font-size:11px; color:var(--ink-soft); font-weight:600; padding:2px 6px 6px;}
+  table.map td{padding:2px 6px;}
+  table.map input{padding:5px 6px;}
+  .maprow-del{color:var(--warn); cursor:pointer; font-size:16px; border:none; background:none; padding:0 6px;}
+  pre#output{
+    margin-left:32px; max-height:420px; overflow:auto; background:#1B2A4A; color:#EAF0EC;
+    padding:16px; border-radius:2px; font-size:11.5px; white-space:pre;
+  }
+  .status{margin-left:32px; font-size:13px; margin-top:10px;}
+  .status.ok{color:var(--teal-dark);}
+  .status.warn{color:var(--warn);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Timetable → Tampermonkey Script Builder</h1>
+  <p class="sub">Paste a timetable table, fix any mismatches against your real dropdown options, then generate a ready-to-install script.</p>
+
+  <div class="step">
+    <h2><span class="n">1</span> Paste the raw timetable</h2>
+    <p class="hint">Tab-separated, one row per day. First row = period headers (Day, I, II, III…). First data row needs "Subject (Teacher)" per cell; later rows can repeat the subject alone, leave blank, use a ditto mark ('), or use — for a free period — same as what you've been pasting me.</p>
+    <textarea id="rawInput" rows="9" placeholder="Day	I	II	III	IV	V	VI	VII	VIII
+Mon	Hindi (SEETA MAAM)	Maths (RAJ SIR)	S.S.T. (MRIDUL MAAM)	Bio (ARCHANA MAAM)	Art (SANJANA MAAM)	English (MRIDUL MAAM)	—	Physics (RAJ SIR)
+Tues	Hindi	Maths	S.S.T.	Bio	'	English	—	Physics"></textarea>
+    <div class="actions">
+      <button class="primary" onclick="parseTable()">Parse into grid</button>
+    </div>
+    <div id="parseStatus" class="status"></div>
+  </div>
+
+  <div class="step" id="gridStep" style="display:none;">
+    <h2><span class="n">2</span> Review &amp; fix the grid</h2>
+    <p class="hint">Edit any cell directly. Blank subject = free period (skipped). Paste your real dropdown options below to auto-flag mismatches in red.</p>
+    <div class="row">
+      <div class="col">
+        <label class="small">Paste teacher &lt;select&gt; HTML (optional)</label>
+        <textarea id="teacherOptionsHtml" rows="4" placeholder="&lt;select&gt;&lt;option&gt;SEETA &lt;/option&gt;...&lt;/select&gt;"></textarea>
+      </div>
+      <div class="col">
+        <label class="small">Paste subject &lt;select&gt; HTML (optional)</label>
+        <textarea id="subjectOptionsHtml" rows="4" placeholder="&lt;select&gt;&lt;option&gt;Hindi&lt;/option&gt;...&lt;/select&gt;"></textarea>
+      </div>
+    </div>
+    <div class="actions"><button class="ghost" onclick="validateGrid()">Check grid against dropdowns</button></div>
+    <div id="gridWrap" style="overflow-x:auto;"></div>
+    <div id="validateStatus" class="status"></div>
+  </div>
+
+  <div class="step" id="mapStep" style="display:none;">
+    <h2><span class="n">3</span> Teacher name mapping (optional)</h2>
+    <p class="hint">Only needed if you want the script itself to translate informal labels. Since the grid above already holds the resolved names, this is usually optional.</p>
+    <table class="map" id="mapTable">
+      <tr><th>Informal label seen in data</th><th>Exact dropdown text</th><th></th></tr>
+    </table>
+    <div class="actions"><button class="ghost" onclick="addMapRow('','')">+ Add row</button></div>
+  </div>
+
+  <div class="step" id="genStep" style="display:none;">
+    <h2><span class="n">4</span> Generate the script</h2>
+    <p class="hint">Produces a full Tampermonkey userscript with polling waits, stuck-popover recovery, and console diagnostics baked in.</p>
+    <div class="actions">
+      <button class="primary" onclick="generateScript()">Generate script</button>
+      <button class="ghost" onclick="copyScript()">Copy to clipboard</button>
+      <button class="ghost" onclick="downloadScript()">Download .user.js</button>
+    </div>
+    <pre id="output">// Click "Generate script" above once your grid looks right.</pre>
+  </div>
+</div>
+
+<script>
+const DAY_ORDER = ["MON","TUE","WED","THU","FRI","SAT","SUN"];
+const ROMAN = {I:1,II:2,III:3,IV:4,V:5,VI:6,VII:7,VIII:8,IX:9,X:10,XI:11,XII:12};
+let grid = {}; // grid[day][periodNum] = {subject, teacher}
+let periods = [];
+
+function normDay(raw){
+  const t = raw.trim().slice(0,3).toUpperCase();
+  return DAY_ORDER.includes(t) ? t : raw.trim().toUpperCase();
+}
+function normPeriod(raw){
+  const t = raw.trim();
+  if (ROMAN[t.toUpperCase()]) return String(ROMAN[t.toUpperCase()]);
+  const n = parseInt(t,10);
+  return isNaN(n) ? t : String(n);
+}
+function splitRow(line){
+  // tab separated; fall back to 2+ spaces if no tabs present
+  return line.includes('\t') ? line.split('\t') : line.split(/ {2,}/);
+}
+function parseCell(raw, prev){
+  const t = raw.trim();
+  if (!t) return {subject: prev.subject, teacher: prev.teacher};
+  if (/^[''"\u2018\u2019\u201c\u201d`]+$/.test(t)) return {subject: prev.subject, teacher: prev.teacher};
+  if (/^[-\u2013\u2014]+$/.test(t)) return {subject:'', teacher:''};
+  const m = t.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  if (m) return {subject: m[1].trim(), teacher: m[2].trim()};
+  return {subject: t, teacher: prev.teacher};
+}
+
+function parseTable(){
+  const raw = document.getElementById('rawInput').value;
+  const lines = raw.split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim().length);
+  if (lines.length < 2){
+    setStatus('parseStatus','Paste a header row plus at least one day row.', true);
+    return;
+  }
+  const header = splitRow(lines[0]);
+  periods = header.slice(1).map(normPeriod);
+
+  grid = {};
+  const prevByPeriod = {}; // carries forward as we scan down rows
+  periods.forEach(p => prevByPeriod[p] = {subject:'', teacher:''});
+
+  for (let i=1; i<lines.length; i++){
+    const cells = splitRow(lines[i]);
+    const day = normDay(cells[0]);
+    grid[day] = {};
+    periods.forEach((p, idx) => {
+      const raw = cells[idx+1] || '';
+      const parsed = parseCell(raw, prevByPeriod[p]);
+      grid[day][p] = parsed;
+      prevByPeriod[p] = parsed;
+    });
+  }
+
+  setStatus('parseStatus', `Parsed ${Object.keys(grid).length} days × ${periods.length} periods.`, false);
+  renderGrid();
+  document.getElementById('gridStep').style.display='block';
+  document.getElementById('mapStep').style.display='block';
+  document.getElementById('genStep').style.display='block';
+  seedMapFromGrid();
+}
+
+function renderGrid(){
+  const days = Object.keys(grid);
+  let html = '<table class="grid"><tr><th>Day</th>' + periods.map(p=>`<th>P${p}</th>`).join('') + '</tr>';
+  days.forEach(day=>{
+    html += `<tr><td class="daycell">${day}</td>`;
+    periods.forEach(p=>{
+      const c = grid[day][p];
+      html += `<td><div class="cellbox">
+        <input class="subj" data-day="${day}" data-period="${p}" data-field="subject" value="${escapeAttr(c.subject)}" placeholder="(free period)">
+        <input class="teach" data-day="${day}" data-period="${p}" data-field="teacher" value="${escapeAttr(c.teacher)}" placeholder="teacher">
+        <div class="flag" data-flagfor="${day}-${p}"></div>
+      </div></td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</table>';
+  document.getElementById('gridWrap').innerHTML = html;
+  document.getElementById('gridWrap').querySelectorAll('input').forEach(inp=>{
+    inp.addEventListener('input', e=>{
+      const {day, period, field} = e.target.dataset;
+      grid[day][period][field] = e.target.value;
+    });
+  });
+}
+
+function escapeAttr(s){ return (s||'').replace(/"/g,'&quot;'); }
+
+function extractOptions(html){
+  const matches = [...html.matchAll(/<option[^>]*>([^<]*)<\/option>/gi)];
+  return matches.map(m => m[1].trim()).filter(Boolean);
+}
+
+function validateGrid(){
+  const teacherOpts = extractOptions(document.getElementById('teacherOptionsHtml').value).map(t=>t.toLowerCase());
+  const subjectOpts = extractOptions(document.getElementById('subjectOptionsHtml').value).map(t=>t.toLowerCase());
+  let mismatches = 0;
+
+  document.querySelectorAll('#gridWrap .cellbox').forEach(box=>{
+    const subjInp = box.querySelector('.subj');
+    const teachInp = box.querySelector('.teach');
+    const flag = box.querySelector('.flag');
+    subjInp.classList.remove('bad'); teachInp.classList.remove('bad');
+    flag.textContent = '';
+
+    const subj = subjInp.value.trim();
+    const teach = teachInp.value.trim();
+    let msgs = [];
+
+    if (subj && subjectOpts.length && !subjectOpts.includes(subj.toLowerCase())){
+      subjInp.classList.add('bad'); msgs.push('subject not in list'); mismatches++;
+    }
+    if (teach && teacherOpts.length && !teacherOpts.includes(teach.toLowerCase())){
+      teachInp.classList.add('bad'); msgs.push('teacher not in list'); mismatches++;
+    }
+    if (msgs.length) flag.textContent = msgs.join(', ');
+  });
+
+  if (!teacherOpts.length && !subjectOpts.length){
+    setStatus('validateStatus','Paste at least one dropdown\'s HTML above to check against.', true);
+  } else if (mismatches){
+    setStatus('validateStatus', `${mismatches} cell field(s) flagged in red — fix or ignore before generating.`, true);
+  } else {
+    setStatus('validateStatus', 'Everything in the grid matches your dropdown options.', false);
+  }
+}
+
+function seedMapFromGrid(){
+  const table = document.getElementById('mapTable');
+  table.querySelectorAll('tr:not(:first-child)').forEach(r=>r.remove());
+  const seen = new Set();
+  Object.values(grid).forEach(day=>{
+    Object.values(day).forEach(c=>{
+      const t = c.teacher.trim();
+      if (t && !seen.has(t.toLowerCase())){
+        seen.add(t.toLowerCase());
+        addMapRow(t, t);
+      }
+    });
+  });
+}
+
+function addMapRow(from, to){
+  const table = document.getElementById('mapTable');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td><input type="text" value="${escapeAttr(from)}"></td>
+    <td><input type="text" value="${escapeAttr(to)}"></td>
+    <td><button class="maprow-del" onclick="this.closest('tr').remove()">&times;</button></td>`;
+  table.appendChild(tr);
+}
+
+function setStatus(id, msg, isWarn){
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status ' + (isWarn ? 'warn' : 'ok');
+}
+
+function buildTimetableDataLiteral(){
+  const days = Object.keys(grid);
+  const lines = ['    const timetableData = {'];
+  days.forEach((day, di) => {
+    lines.push(`        "${day}": {`);
+    const periodLines = periods.map(p=>{
+      const c = grid[day][p];
+      const subj = c.subject.trim();
+      const teach = c.teacher.trim();
+      let val;
+      if (!subj) val = 'Empty';
+      else if (teach) val = `${jsStr(subj)}\\n${jsStr(teach, true)}`;
+      else val = jsStr(subj);
+      return `            "${p}": "${val}"`;
+    });
+    lines.push(periodLines.join(',\n') + (di < days.length-1 ? '' : ''));
+    lines.push(`        }${di < days.length-1 ? ',' : ''}`);
+  });
+  lines.push('    };');
+  return lines.join('\n');
+
+  function jsStr(s){ return s.replace(/"/g,'\\"'); }
+}
+
+function buildMapLiteral(){
+  const rows = [...document.querySelectorAll('#mapTable tr')].slice(1);
+  const entries = rows.map(r=>{
+    const inputs = r.querySelectorAll('input');
+    const from = inputs[0].value.trim();
+    const to = inputs[1].value.trim();
+    if (!from || !to) return null;
+    return `        "${from.toLowerCase().replace(/"/g,'\\"')}": "${to.replace(/"/g,'\\"')}"`;
+  }).filter(Boolean);
+  return '    const teacherNameMap = {\n' + entries.join(',\n') + '\n    };';
+}
+
+function generateScript(){
+  if (!Object.keys(grid).length){ alert('Parse the table first.'); return; }
+  const dataLiteral = buildTimetableDataLiteral();
+  const mapLiteral = buildMapLiteral();
+
+  const script = `// ==UserScript==
+// @name         Auto Fill Timetable (Generated)
+// @match        *://*/*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+${dataLiteral}
+
+${mapLiteral}
+
+    function resolveTeacherName(raw) {
+        const key = raw.trim().toLowerCase();
+        return teacherNameMap[key] || raw;
+    }
+
+    function getDayNum(day) {
+        return {"MON": 1, "TUE": 2, "WED": 3, "THU": 4, "FRI": 5, "SAT": 6, "SUN": 7}[day];
+    }
+
+    function waitFor(checkFn, { timeout = 3000, interval = 100 } = {}) {
+        return new Promise((resolve) => {
+            const start = Date.now();
+            const tick = () => {
+                const result = checkFn();
+                if (result) return resolve(result);
+                if (Date.now() - start >= timeout) return resolve(null);
+                setTimeout(tick, interval);
+            };
+            tick();
+        });
+    }
+
+    async function selectValueInPopover(text, label) {
+        const select = await waitFor(() => {
+            const containers = document.querySelectorAll('.editable-container');
+            const container = containers[containers.length - 1];
+            const sel = container && container.querySelector('select');
+            return (sel && sel.options.length > 0) ? sel : null;
+        });
+
+        if (!select) {
+            console.warn(\`[AutoFill] Timed out waiting for <select> for \${label} "\${text}"\`);
+            return false;
+        }
+
+        const target = text.trim().toLowerCase();
+        let matchedOption = null;
+
+        for (let option of select.options) {
+            if (option.text.trim().toLowerCase() === target) { matchedOption = option; break; }
+        }
+        if (!matchedOption) {
+            for (let option of select.options) {
+                const optText = option.text.trim().toLowerCase();
+                if (optText.includes(target) || target.includes(optText)) {
+                    matchedOption = option;
+                    console.warn(\`[AutoFill] Fuzzy match: "\${text}" -> "\${option.text.trim()}"\`);
+                    break;
+                }
+            }
+        }
+
+        if (matchedOption) {
+            select.value = matchedOption.value;
+            select.dispatchEvent(new Event('input', { bubbles: true }));
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            if (window.jQuery) window.jQuery(select).val(matchedOption.value).trigger('change');
+            return true;
+        }
+
+        console.error(\`[AutoFill] NO MATCH for \${label} "\${text}". Available options:\`,
+            Array.from(select.options).map(o => o.text.trim()));
+        return false;
+    }
+
+    async function forceCloseStuckPopover() {
+        if (!document.querySelector('.editable-container')) return;
+        console.warn('[AutoFill] Popover was still open - force closing before continuing');
+        document.body.click();
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await waitFor(() => !document.querySelector('.editable-container'), { timeout: 1500 });
+        if (document.querySelector('.editable-container')) {
+            console.error('[AutoFill] Could not force-close stuck popover - subsequent cells may fail');
+        }
+    }
+
+    async function fillCell(link, valueToSet, label) {
+        await forceCloseStuckPopover();
+
+        if (!link) {
+            console.warn(\`[AutoFill] Link not found for \${label} "\${valueToSet}"\`);
+            return;
+        }
+
+        link.click();
+
+        const popoverOpened = await waitFor(() => document.querySelector('.editable-container'));
+        if (!popoverOpened) {
+            console.warn(\`[AutoFill] Popover never opened for \${label} "\${valueToSet}" - retrying click once\`);
+            link.click();
+            await waitFor(() => document.querySelector('.editable-container'));
+        }
+
+        const ok = await selectValueInPopover(valueToSet, label);
+
+        const containers = document.querySelectorAll('.editable-container');
+        const container = containers[containers.length - 1];
+        const saveBtn = container && container.querySelector('.editable-submit');
+
+        if (ok && saveBtn) {
+            saveBtn.click();
+            await waitFor(() => !document.querySelector('.editable-container'), { timeout: 2000 });
+        } else {
+            console.warn(\`[AutoFill] Skipped saving \${label} "\${valueToSet}" (no match / no select)\`);
+            await forceCloseStuckPopover();
+        }
+
+        await new Promise(r => setTimeout(r, 300));
+    }
+
+    async function startAutomation() {
+        console.log("Starting automation...");
+        for (const [day, periodsObj] of Object.entries(timetableData)) {
+            for (const [periodNum, entry] of Object.entries(periodsObj)) {
+                if (entry.includes("Empty")) continue;
+
+                const parts = entry.split('\\n');
+                const subject = parts[0];
+                const teacher = parts[1] ? resolveTeacherName(parts[1]) : null;
+
+                const subjLink = document.querySelector(
+                    \`a.subject_select[data-week_day="\${getDayNum(day)}"][data-period_no="\${periodNum}"]\`
+                );
+                await fillCell(subjLink, subject, \`\${day} P\${periodNum} subject\`);
+
+                if (teacher && teacher !== "Empty") {
+                    const teachLink = document.querySelector(
+                        \`a.teacher_select[data-week_day="\${getDayNum(day)}"][data-period_no="\${periodNum}"]\`
+                    );
+                    await fillCell(teachLink, teacher, \`\${day} P\${periodNum} teacher\`);
+                }
+            }
+        }
+        console.log("Automation finished! Check console warnings above for any skipped cells.");
+    }
+
+    const btn = document.createElement('button');
+    btn.innerText = "Fill Timetable";
+    btn.style.position = "fixed";
+    btn.style.bottom = "20px";
+    btn.style.right = "20px";
+    btn.style.zIndex = "9999";
+    btn.style.padding = "10px";
+    btn.style.backgroundColor = "#28a745";
+    btn.style.color = "white";
+    btn.style.border = "none";
+    btn.style.borderRadius = "4px";
+    btn.style.cursor = "pointer";
+    btn.onclick = startAutomation;
+    document.body.appendChild(btn);
+})();
+`;
+  document.getElementById('output').textContent = script;
+  window._generatedScript = script;
+}
+
+function copyScript(){
+  if (!window._generatedScript){ alert('Generate the script first.'); return; }
+  navigator.clipboard.writeText(window._generatedScript).then(()=>{
+    setStatus('validateStatus','Copied to clipboard.', false);
+  });
+}
+
+function downloadScript(){
+  if (!window._generatedScript){ alert('Generate the script first.'); return; }
+  const blob = new Blob([window._generatedScript], {type:'text/javascript'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'autofill-timetable.user.js';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
